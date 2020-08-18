@@ -1,6 +1,7 @@
 body{
   font-family: "DejaVu Sans", helvetica; 
 }
+
 .grid{
   display : grid;
 	grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
@@ -13,8 +14,13 @@ body{
   min-height: 200px;
   min-width: 200px:
 }
+
 .pixel{
   border: solid black 1px;
   height: auto;
   text-align: center;
+}
+
+img.piece{
+  width: 100%;
 }
