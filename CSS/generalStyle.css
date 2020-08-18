@@ -1,0 +1,20 @@
+body{
+  font-family: "DejaVu Sans", helvetica; 
+}
+.grid{
+  display : grid;
+	grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
+	grid-auto-rows : 1fr;
+	grid-Auto-Columns : 1fr;
+	row-gap : 0;
+	column-gap:  0;
+  height: 500px;
+  width: 500px;
+  min-height: 200px;
+  min-width: 200px:
+}
+.pixel{
+  border: solid black 1px;
+  height: auto;
+  text-align: center;
+}
