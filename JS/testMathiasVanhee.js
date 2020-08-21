@@ -1,17 +1,16 @@
 //CLASSES
 
-function Player( grid, color = 'white' ) {
+function Player( playerGame, color = 'white' ) {
 
-	this.grid = grid;
+	this.grid = playerGame.gridMatrix;
+
+	this.game = playerGame;
 
 	this.color = color;
 
-	if ( this.color === 'white' ) {
-		this.playing = true;
-	}
-	else {
-		this.playing = false;
-	}
+	this._playing = false;
+
+	this.actions = [];
 
 	this.piecesObj = {
 
@@ -27,6 +26,8 @@ function Player( grid, color = 'white' ) {
 
 		king: null
 	};
+
+	this.memory = {};
 
 	this.piecesList = [];
 
@@ -79,13 +80,77 @@ function Player( grid, color = 'white' ) {
 
 }
 
+Player.sortActionsById = function ( actions ) {
+
+	let moves = actions.moves;
+	let captures = actions.captures;
+	//à partir de moves, on crée un tableau de tableau de 16 de longueur o% chaque élément est un tableau: à tableau[6], il y aura un tableau de tous les moves dont la piece ait un id égal à 6;
+
+	let returnedMoves = [];
+	returnedMoves.length = 16;
+	
+	let returnedCaptures = [];
+	returnedCaptures.length = 16;
+	for ( let i = 0; i < 16; i++ ) {
+		returnedMoves[i] = [];
+		returnedCaptures[i] = [];
+	}
+
+	for ( let i = 0; i < moves.length; i++ ) {
+		returnedMoves[moves[i].piece.id].push( moves[i] );
+	}
+
+
+	for ( let i = 0; i < captures.length; i++ ) {
+		returnedCaptures[captures[i].piece.id].push( captures[i] );
+	}
+
+	return { moves: returnedMoves, captures: returnedCaptures };
+
+}
+
+Player.getPxById = function ( sortedActions ) {
+
+	let returnedPx = { moves: [], captures: [] };
+	returnedPx.moves.length = 16;
+	returnedPx.captures.length = 16;
+	for ( let id = 0; id < 16; id++ ) {
+		returnedPx.moves[id] = [];
+		returnedPx.captures[id] = [];
+	}
+
+	//on trie les pixels par id de Pièce.
+	//pour chaque pièce:
+	for ( let id = 0; id < 16; id++ ) {
+
+		let moves = sortedActions.moves[id];
+		let captures = sortedActions.captures[id];
+
+		//pour chaque move:
+		for ( let i = 0; i < moves.length; i++ ) {
+			let move = moves[i];
+			returnedPx.moves[id].push( { line: move.finish.y + 1, col: move.finish.x + 1 } );
+		}
+
+		//pour chaque capture:
+		for ( let i = 0; i < captures.length; i++ ) {
+			let capture = captures[i];
+			returnedPx.captures[id].push( { line: capture.finish.y + 1, col: capture.finish.x + 1 } );
+		}
+		
+	}
+
+	return returnedPx;
+
+}
+
 Object.assign( Player.prototype, {
 
 	displayOnGrid: function () {
 
 		for ( let id = 0; id < this.piecesList.length; id++ ) {
 			let piece = this.piecesList[id];
-			game.getDomElem( piece.line, piece.col ).append( piece.img );
+			this.game.getDomElem( piece.line, piece.col ).append( piece.img );
 		}
 
 	},
@@ -212,16 +277,58 @@ Object.assign( Player.prototype, {
 
 	movePiece: function ( move = new Move ) {
 
-		move.piece.coordinates = Object.assign( {}, move.finish );
-		this.grid[move.source.y][move.source.x] = 0;
-		this.grid[move.source.y][move.source.x] = move.piece;
-		this.playing = false;
-		this.opponent.playing = true;
-		//faire un event pour bouger les images sur l'échiquier.
+		this.changeGrid( move );
 
 	},
 
 	capturePiece: function ( capture = new Capture ) {
+
+		capture.target.alive = false;
+		capture.target.img.detach();
+
+		this.changeGrid( capture );
+
+	},
+
+	changeGrid: function ( move ) {
+
+		move.piece.coordinates = Object.assign( {}, move.finish );
+		this.grid[move.source.y][move.source.x] = 0;
+		this.grid[move.finish.y][move.finish.x] = move.piece;
+		this.playing = false;
+		this.opponent.playing = true;
+
+		this.game.getDomElem( move.piece.line, move.piece.col ).append( move.piece.img );
+
+	},
+
+	startHandlingClick: function ( sortedActions = this.memory.sortedActions, sortedPx = this.memory.sortedPx ) {
+
+		for ( let i = 0; i < this.piecesList.length; i++ ) {
+
+			let piece = this.piecesList[i];
+			
+			let data = {
+				actions: { moves: sortedActions.moves[i], captures: sortedActions.captures[i] },
+				pixels: { moves: sortedPx.moves[i], captures: sortedPx.captures[i] },
+				player: this,
+				piece: piece
+			};
+			//S'il n'y a aucune action possible, on empêche le joueur de pouvoir cliquer sur la pièce.
+			if ( !( data.actions.moves.length || data.actions.captures.length ) ) continue;
+			piece.img.on( "click", data, this.game.moveImgHandler );
+		}
+		
+
+	},
+
+	stopHandlingClick: function () {
+
+		for ( let i = 0; i < this.piecesList.length; i++ ) {
+			let piece = this.piecesList[i];
+			piece.img.off();
+
+		}
 
 	}
 
@@ -240,6 +347,46 @@ Object.defineProperties( Player.prototype, {
 			this._opponent = opponent;
 			opponent._opponent = this;
 		}
+	},
+
+	"playing": {
+
+		get: function () {
+			return this._playing;
+		},
+
+		set: function ( bool ) {
+
+			if ( typeof bool != "boolean" ) return;
+
+			this._playing = bool;
+
+			if ( bool ) {
+				//starts playing
+				this.actions = this.findAllMoves();
+				let moves = this.actions.moves;
+				let captures = this.actions.captures;
+
+				//-> faire une fonction qui renvoie pour moves et captures une liste, dans laquelle est rangé toutes les actions à partir de l'id de la pièce.
+				let sortedActions = Player.sortActionsById( this.actions );
+
+				let sortedPx = Player.getPxById( sortedActions );
+
+				this.memory.sortedActions = sortedActions;
+				this.memory.sortedPx = sortedPx;
+
+				this.startHandlingClick( sortedActions, sortedPx );
+			}
+			else {
+				//stops playing -> stop the event listener.
+				this.stopHandlingClick()
+			}
+		}
+				
+			
+			
+		
+
 	}
 } );
 
@@ -259,6 +406,7 @@ function Piece( type = 'pawn', line = 1, col = 1, color = "white", id = 'null', 
 
 }
 
+
 Object.assign( Piece.prototype, {
 
 	move: function ( line, col ) {
@@ -270,14 +418,14 @@ Object.assign( Piece.prototype, {
 
 	checkAttackMove: function ( finish, moves, captures ) {
 
-		let move = new Move( this, finish, this.grid );
+		let move = new Move( this, Object.assign( {}, finish), this.grid );
 
 		if ( move.isPossible() ) {
 			moves.push( move );
 		}
 
 		else {
-			let capture = new Capture( this, finish, this.grid );
+			let capture = new Capture( this, Object.assign( {}, finish ), this.grid );
 			if ( capture.isPossible() ) {
 				captures.push( capture );
 			}
@@ -296,7 +444,7 @@ Object.assign( Piece.prototype, {
 
 		if ( !max ) max = 10;
 		let finish = Object.assign( {}, this.coordinates );
-		dist = 0;
+		let dist = 1;
 		while ( dist <= max ) {
 			finish.x += iX;
 			finish.y += iY;
@@ -343,7 +491,7 @@ function Move( piece = new Piece, finish = { x: 0, y: 0}, grid ) {
 	this.piece = piece;
 	this.pieceId = piece.id;
 	this.source = piece.coordinates;
-	this.finish = finish;
+	this.finish = Object.assign( {}, finish);
 	this.color = piece.color;
 	this.grid = grid || piece.grid;
 	this.possible = 'unknown';
@@ -374,7 +522,7 @@ function Capture( piece = new Piece, finish = { x: 0, y: 0 }, grid ) {
 	this.piece = piece;
 	this.pieceId = piece.id;
 	this.source = piece.coordinates;
-	this.finish = finish;
+	this.finish = Object.assign( {}, finish );
 	this.color = piece.color;
 	this.grid = grid;
 	this.possible = 'unknown';
@@ -415,6 +563,8 @@ $( document ).ready( function () {
 
 	document.body.appendChild( game.DOMgrid );
 	game.start();
+
+	
 
 } );
 
@@ -489,6 +639,7 @@ var game = {
 		//dernière ligne: 8 lettres + 2 vides.
 		addLettersLine( newGrid );
 
+
 		return newGrid;
 
 	} )(),
@@ -509,8 +660,8 @@ var game = {
 }
 
 game.players = {
-	white: new Player( game.gridMatrix, 'white' ),
-	black: new Player( game.gridMatrix, 'black' )
+	white: new Player( game, 'white' ),
+	black: new Player( game, 'black' )
 }
 
 game.players.white.opponent = game.players.black;
@@ -519,14 +670,94 @@ Object.assign( game, {
 
 	start: function () {
 		game.players.white.displayOnGrid();
-		game.players.black.displayOnGrid()
+		game.players.black.displayOnGrid();
+		game.players.white.playing = true;
 	},
 
 	getDomElem: function ( line, col ) {
 		return $( `#${line}_${col}` )
+	},
+
+	moveImgHandler: function ( e ) {
+
+		//ici faire un Event listener pour enlever les cases jaunes et les listeners.
+		let moves = e.data.actions.moves;
+		let captures = e.data.actions.captures;
+		let game = e.data.player.game;
+		let piece = e.data.piece;
+		let img = this;
+		let pixels = e.data.pixels;
+		let player = e.data.player;
+
+		//on empêche le joueur de cliquer sur plusieurs pièces à la fois.
+		player.stopHandlingClick()
+
+		
+
+		game.colorPixels( pixels.moves, "yellow" );
+		game.colorPixels( pixels.captures, "red" );
+
+		for ( let id = 0; id < moves.length; id++ ) {
+			game.getDomElem( moves[id].finish.y + 1, moves[id].finish.x + 1 ).css( "background-color", "yellow" ).click( Object.assign( { move: moves[id] }, e.data ), function ( e ) {
+				e.data.player.movePiece( e.data.move );
+				//ici enlever les cases jaunes ou faire un Event pour
+				game.resetPixels( pixels.moves );
+				game.resetPixels( pixels.captures );
+			} );
+		}
+
+		for ( let id = 0; id < captures.length; id++ ) {
+			game.getDomElem( captures[id].finish.y + 1, captures[id].finish.x + 1 ).css( "background-color", "red" ).click( Object.assign( { capture: captures[id] }, e.data ), function ( e ) {
+				e.data.player.capturePiece( e.data.capture );
+				//ici enlever les cases jaunes ou faire un Event pour
+				game.resetPixels( pixels.moves );
+				game.resetPixels( pixels.captures );
+			} );
+		}
+
+
+		//si on reclique sur l'image, on revient comme avant.
+		$( this ).one( "click", e.data, function ( e ) {
+			game.resetPixels( e.data.pixels.moves );
+			game.resetPixels( e.data.pixels.captures );
+			e.data.player.startHandlingClick();
+
+		} );
+
+	},
+
+	colorPixels: function ( pixels, color ) {
+
+		for ( let i = 0; i < pixels.length; i++ ) {
+			this.colorPixel( pixels[i], color );
+		}
+
+	},
+
+	resetPixels: function ( pixels ) {
+
+		for ( let i = 0; i < pixels.length; i++ ) {
+			let pixel = pixels[i];
+			if ( ( pixel.col ^ pixel.line ) % 2 ) {
+				this.colorPixel( pixel, "#DCDCDC" );
+			}
+			else {
+				this.colorPixel( pixel, "#493E2E" );
+			}
+
+			this.getDomElem( pixel.line, pixel.col ).off();
+
+		}
+
+	},
+
+	colorPixel: function ( pixel, color ) {
+
+		this.getDomElem( pixel.line, pixel.col ).css( "background-color", color );
+
 	}
 
-} )
+} );
 
 
 var allKnightMvments = [];
