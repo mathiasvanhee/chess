@@ -183,6 +183,12 @@ Object.assign( Player.prototype, {
 						
 						//si oui il est menacé, donc le move potentiel du joueur adverse( this.oppponent ) est impossible et enlevé de ses actions possibles. 
 						if ( kingPos.x == zone.x && kingPos.y == zone.y ) {
+							if ( action.type === "capture" ) {
+								if ( action.target.type === "bishop" ) {
+
+									console.log( 'yes' );
+								}
+							}
 							isPossible = false
 							break;
 						}
