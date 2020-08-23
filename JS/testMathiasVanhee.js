@@ -8,6 +8,8 @@ function Player( playerGame, color = 'white' ) {
 
 	this.color = color;
 
+	this.isChecked = false;
+
 	this._playing = false;
 
 	this.actions = [];
@@ -155,7 +157,96 @@ Object.assign( Player.prototype, {
 
 	},
 
-	findAllMoves: function () {
+	//verifie si le joueur a mis en échec ou échec et mat l'adversaire.
+	verifyCheck: function () {
+
+		let captures = this.findAllActions().captures;
+		for ( let i = 0; i < captures.length; i++ ) {
+			if ( captures[i].target.type === "king" ) {
+				//le roi adverse est mis en échec -> on vérifie si le joueur adverse (this.opponent) peut encore jouer.
+				this.opponent.isChecked = true;
+				let sortedOpponentActions = this.opponent.findAllActions();
+				let opponentActions = sortedOpponentActions.moves.concat( sortedOpponentActions.captures );
+				let validOpponentActions = {moves: [], captures: []};
+				let kingPos = this.opponent.piecesObj.king.coordinates;
+				for ( let iAct = 0; iAct < opponentActions.length; iAct++ ) {
+					//simulation de l'action du joueur adverse(this.opponent):
+					let action = opponentActions[iAct];
+					this.simulateAction( action );
+
+					//on regarde si parmi les captures du premier joueur (this), il y a possibilité de prendre le roi de l'adversaire (this.opponent).
+					let controlledZones = this.getControlledZones();
+					let isPossible = true;
+					//pour chacune des zones controllé du joueur(this) après la simulation de l'action du joueur adverse(this.opponent) on regarde si le roi adverse n'est pas sur la même case :
+					for ( let iZones = 0; iZones < controlledZones.length; iZones++ ) {
+						let zone = controlledZones[iZones];
+						
+						//si oui il est menacé, donc le move potentiel du joueur adverse( this.oppponent ) est impossible et enlevé de ses actions possibles. 
+						if ( kingPos.x == zone.x && kingPos.y == zone.y ) {
+							isPossible = false
+							break;
+						}
+					}
+					if ( isPossible ) {
+						validOpponentActions[action.type + "s"].push( action );
+					}
+
+					//on repart en arrière pour remettre bien la grille:
+					this.unsimulateAction( action );
+				}
+
+				//si le joueur adverse ne peut plus jouer, il est mat.
+				if ( !(validOpponentActions.moves.length || validOpponentActions.captures.length) ) {
+					
+					return 'checkmate';
+				}
+				//sinon, le joueur adverse peut jouer, sauf qu'on lui fournit la liste de ces moves directement.
+				this.opponent.actions = validOpponentActions;
+				return 'check';
+				
+			}
+		}
+		return false;
+
+	},
+
+	getControlledZones: function () {
+
+		const getZone = action => action.finish;
+
+		let controllingActions = this.findAllControllingActions();
+		let controlledZones = Array.from( controllingActions.moves, getZone ).concat( Array.from( controllingActions.captures, getZone ) );
+
+		return controlledZones;
+			
+	},
+
+
+	findAllActions: function () {
+
+		let actions = this.findAllControllingActions();
+		let pawns = this.piecesObj.pawns;
+
+		for ( let id = 0; id < pawns.length; id++ ) {
+
+			let pawn = pawns[id];
+			if ( !pawn.alive ) continue;
+
+			//déplacement vers l'avant:
+			let finish = Object.assign( {}, pawn.coordinates );
+			finish.y += this.color === 'white' ? 1 : -1;
+
+			let move = new Move( pawn, finish, this.grid );
+			if ( move.isPossible() ) {
+				actions.moves.push( move );
+			}
+		}
+
+		return actions;
+
+	},
+
+	findAllControllingActions: function () {
 
 		//on ne regarde pas ici si le roi est sous contrôle.
 
@@ -169,13 +260,8 @@ Object.assign( Player.prototype, {
 			let pawn = pawns[id];
 			if ( !pawn.alive ) continue;
 
-			//déplacement vers l'avant:
-			let finish = Object.assign( {} , pawn.coordinates );
+			let finish = Object.assign( {}, pawn.coordinates );
 			finish.y += this.color === 'white' ? 1 : -1;
-			let move = new Move( pawn, finish, this.grid );
-			if ( move.isPossible() ) {
-				moves.push( move );
-			}
 
 			//capture vers l'avant en diagonale:
 			finish.x += 1;
@@ -221,7 +307,7 @@ Object.assign( Player.prototype, {
 			if ( !knight.alive ) continue;
 
 			for ( let i = 0; i < allKnightMvments.length; i++ ) {
-				let finish = Object.assign( {} , knight.coordinates );
+				let finish = Object.assign( {}, knight.coordinates );
 				finish.x += allKnightMvments[i].x
 				finish.y += allKnightMvments[i].y
 				knight.checkAttackMove( finish, moves, captures, this.grid )
@@ -273,11 +359,15 @@ Object.assign( Player.prototype, {
 
 
 		return { 'moves': moves, 'captures': captures };
+
 	},
 
 	movePiece: function ( move = new Move ) {
 
 		this.changeGrid( move );
+		this.game.getDomElem( move.piece.line, move.piece.col ).append( move.piece.img );
+
+		this.endTurn();
 
 	},
 
@@ -286,21 +376,59 @@ Object.assign( Player.prototype, {
 		capture.target.alive = false;
 		capture.target.img.detach();
 
-		this.changeGrid( capture );
+		this.movePiece( capture );
 
 	},
 
-	changeGrid: function ( move ) {
+	endTurn: function () {
 
-		move.piece.coordinates = Object.assign( {}, move.finish );
-		this.grid[move.source.y][move.source.x] = 0;
-		this.grid[move.finish.y][move.finish.x] = move.piece;
 		this.playing = false;
-		this.opponent.playing = true;
-
-		this.game.getDomElem( move.piece.line, move.piece.col ).append( move.piece.img );
+		//on vérifie si par le coup effectué le joueur a mis mat ou en échec le joueur adverse:
+		let isOppChecked = this.verifyCheck();
+		if ( isOppChecked !== "checkmate" ) {
+			this.opponent.playing = true;
+		}
+		else {
+			game.over( this, this.opponent );
+		}
 
 	},
+
+
+	changeGrid: function ( action ) {
+
+		action.piece.coordinates = Object.assign( {}, action.finish );
+		this.grid[action.source.y][action.source.x] = 0;
+		this.grid[action.finish.y][action.finish.x] = action.piece;
+
+	},
+
+	unChangeGrid( action ) {
+
+		this.changeGrid( Object.assign(
+			{},
+			action,
+			{
+				finish: Object.assign( {}, action.source ),
+				source: Object.assign( {}, action.finish )
+			}
+		) );
+
+	},
+
+	simulateAction: function ( action ) {
+		this.changeGrid( action );
+	},
+
+	unsimulateAction: function ( action ) {
+
+		this.unChangeGrid( action );
+		if ( action.type === "capture" ) {
+			this.grid[action.finish.y][action.finish.x] = action.target;
+		}
+
+	},
+
 
 	startHandlingClick: function ( sortedActions = this.memory.sortedActions, sortedPx = this.memory.sortedPx ) {
 
@@ -363,7 +491,9 @@ Object.defineProperties( Player.prototype, {
 
 			if ( bool ) {
 				//starts playing
-				this.actions = this.findAllMoves();
+				if ( !this.isChecked ) {
+					this.actions = this.findAllActions();
+				}
 				let moves = this.actions.moves;
 				let captures = this.actions.captures;
 
@@ -378,15 +508,12 @@ Object.defineProperties( Player.prototype, {
 				this.startHandlingClick( sortedActions, sortedPx );
 			}
 			else {
+				this.isChecked = false;
+				
 				//stops playing -> stop the event listener.
-				this.stopHandlingClick()
+				this.stopHandlingClick();
 			}
 		}
-				
-			
-			
-		
-
 	}
 } );
 
@@ -487,7 +614,8 @@ Object.defineProperties( Piece.prototype, {
 
 
 
-function Move( piece = new Piece, finish = { x: 0, y: 0}, grid ) {
+function Move( piece = new Piece, finish = { x: 0, y: 0 }, grid ) {
+	this.type = "move";
 	this.piece = piece;
 	this.pieceId = piece.id;
 	this.source = piece.coordinates;
@@ -519,6 +647,7 @@ Object.assign( Move.prototype, {
 
 
 function Capture( piece = new Piece, finish = { x: 0, y: 0 }, grid ) {
+	this.type = "capture";
 	this.piece = piece;
 	this.pieceId = piece.id;
 	this.source = piece.coordinates;
@@ -754,6 +883,33 @@ Object.assign( game, {
 	colorPixel: function ( pixel, color ) {
 
 		this.getDomElem( pixel.line, pixel.col ).css( "background-color", color );
+
+	},
+
+	getMatrixCopy(copiedMatrix) {
+
+		newMatrix = [];
+		newMatrix.length = 8;
+
+		for ( let y = 0; y < copiedMatrix.length; y++ ) {
+			for ( let x = 0; x < copiedMatrix[y].length; x++ ) {
+				let content = copiedMatrix[y][x];
+				if ( typeof content == 'object' ) {
+					content = Object.assign
+				}
+			}
+			
+		}
+
+		let line = [];
+		line.length = 8;
+		line.fill( 0 );
+		
+		
+
+	},
+
+	over: function (winner, looser) {
 
 	}
 
