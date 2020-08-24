@@ -148,62 +148,63 @@ Player.getPxById = function ( sortedActions ) {
 
 Object.assign( Player.prototype, {
 
-	displayOnGrid: function () {
+	//regarde si l'action est réalisable de la part du joueur (this)
+	isActionPossible: function ( action ) {
 
-		for ( let id = 0; id < this.piecesList.length; id++ ) {
-			let piece = this.piecesList[id];
-			this.game.getDomElem( piece.line, piece.col ).append( piece.img );
+		//on simule d'abord l'action du joueur:
+		this.simulateAction( action );
+
+		//on regarde alors si parmi les captures du joueur adverse (this.opponent), il y a possibilité de prendre le roi du joueur (this).
+		let captures = this.opponent.findAllControllingActions().captures;
+		let isPossible = true;
+		//on regarde pour chacune des captures potentielles du joueur adverse(this.opponent)  on regarde si le roi n'est pas pris (s'il n'est pas la cible de la capture) :
+		for ( let i = 0; i < captures.length; i++ ) {
+			let capture = captures[i];
+			//si oui il est menacé, donc l'action du joueur (this) est impossible.
+			if ( capture.target.type === 'king' ) {
+				isPossible = false
+				break;
+			}
 		}
+
+		//on repart en arrière pour remettre bien la grille:
+		this.unsimulateAction( action );
+
+		return isPossible;
 
 	},
 
-	//verifie si le joueur a mis en échec ou échec et mat l'adversaire.
+	//méthode qui renvoit toutes les actions possibles du joueur.
+	getPossibleActions: function () {
+
+		let sortedActions = this.findAllActions();
+		let actions = sortedActions.moves.concat( sortedActions.captures );
+
+		let possibleActions = { moves: [], captures: [] };
+		for ( let i = 0; i < actions.length; i++ ) {
+			if ( this.isActionPossible( actions[i] ) ) {
+				possibleActions[actions[i].type + "s"].push( actions[i] );
+            }
+		}
+		return possibleActions;
+
+    },
+
+	//vérifie si le joueur a mis en échec ou échec et mat l'adversaire.
 	verifyCheck: function () {
 
 		let captures = this.findAllActions().captures;
 		for ( let i = 0; i < captures.length; i++ ) {
+
 			if ( captures[i].target.type === "king" ) {
 				//le roi adverse est mis en échec -> on vérifie si le joueur adverse (this.opponent) peut encore jouer.
 				this.opponent.isChecked = true;
-				let sortedOpponentActions = this.opponent.findAllActions();
-				let opponentActions = sortedOpponentActions.moves.concat( sortedOpponentActions.captures );
-				let validOpponentActions = {moves: [], captures: []};
-				let kingPos = this.opponent.piecesObj.king.coordinates;
-				for ( let iAct = 0; iAct < opponentActions.length; iAct++ ) {
-					//simulation de l'action du joueur adverse(this.opponent):
-					let action = opponentActions[iAct];
-					this.simulateAction( action );
 
-					//on regarde si parmi les captures du premier joueur (this), il y a possibilité de prendre le roi de l'adversaire (this.opponent).
-					let controlledZones = this.getControlledZones();
-					let isPossible = true;
-					//pour chacune des zones controllé du joueur(this) après la simulation de l'action du joueur adverse(this.opponent) on regarde si le roi adverse n'est pas sur la même case :
-					for ( let iZones = 0; iZones < controlledZones.length; iZones++ ) {
-						let zone = controlledZones[iZones];
-						
-						//si oui il est menacé, donc le move potentiel du joueur adverse( this.oppponent ) est impossible et enlevé de ses actions possibles. 
-						if ( kingPos.x == zone.x && kingPos.y == zone.y ) {
-							if ( action.type === "capture" ) {
-								if ( action.target.type === "bishop" ) {
-
-									console.log( 'yes' );
-								}
-							}
-							isPossible = false
-							break;
-						}
-					}
-					if ( isPossible ) {
-						validOpponentActions[action.type + "s"].push( action );
-					}
-
-					//on repart en arrière pour remettre bien la grille:
-					this.unsimulateAction( action );
-				}
-
+				//On regarde les actions possibles de l'adversaire :
+				let validOpponentActions = this.opponent.getPossibleActions();
+				
 				//si le joueur adverse ne peut plus jouer, il est mat.
 				if ( !(validOpponentActions.moves.length || validOpponentActions.captures.length) ) {
-					
 					return 'checkmate';
 				}
 				//sinon, le joueur adverse peut jouer, sauf qu'on lui fournit la liste de ces moves directement.
@@ -211,6 +212,7 @@ Object.assign( Player.prototype, {
 				return 'check';
 				
 			}
+
 		}
 		return false;
 
@@ -327,6 +329,7 @@ Object.assign( Player.prototype, {
 		for ( let id = 0; id < bishops.length; id++ ) {
 
 			let bishop = bishops[id];
+			if ( !bishop.alive ) continue;
 
 			bishop.addLinearMoves( +1, +1, moves, captures );
 			bishop.addLinearMoves( +1, -1, moves, captures );
@@ -337,17 +340,21 @@ Object.assign( Player.prototype, {
 
 		//queen:
 		let queen = this.piecesObj.queen;
-		//déplacement latéral:
-		queen.addLatMoves( 1, moves, captures );
-		queen.addLatMoves( -1, moves, captures );
-		//déplacement vertical:
-		queen.addVertMoves( 1, moves, captures );
-		queen.addVertMoves( -1, moves, captures );
-		//déplacements diagonaux:
-		queen.addLinearMoves( +1, +1, moves, captures );
-		queen.addLinearMoves( +1, -1, moves, captures );
-		queen.addLinearMoves( -1, +1, moves, captures );
-		queen.addLinearMoves( -1, -1, moves, captures );
+		if ( queen.alive ) {
+
+			//déplacement latéral:
+			queen.addLatMoves( 1, moves, captures );
+			queen.addLatMoves( -1, moves, captures );
+			//déplacement vertical:
+			queen.addVertMoves( 1, moves, captures );
+			queen.addVertMoves( -1, moves, captures );
+			//déplacements diagonaux:
+			queen.addLinearMoves( +1, +1, moves, captures );
+			queen.addLinearMoves( +1, -1, moves, captures );
+			queen.addLinearMoves( -1, +1, moves, captures );
+			queen.addLinearMoves( -1, -1, moves, captures );
+		}
+
 
 		//King:
 		let king = this.piecesObj.king;
@@ -362,7 +369,6 @@ Object.assign( Player.prototype, {
 		king.addLinearMoves( +1, -1, moves, captures, 1 );
 		king.addLinearMoves( -1, +1, moves, captures, 1 );
 		king.addLinearMoves( -1, -1, moves, captures, 1 );
-
 
 		return { 'moves': moves, 'captures': captures };
 
@@ -424,6 +430,9 @@ Object.assign( Player.prototype, {
 
 	simulateAction: function ( action ) {
 		this.changeGrid( action );
+		if ( action.type === 'capture' ) {
+			action.target.alive = false;
+        }
 	},
 
 	unsimulateAction: function ( action ) {
@@ -431,6 +440,7 @@ Object.assign( Player.prototype, {
 		this.unChangeGrid( action );
 		if ( action.type === "capture" ) {
 			this.grid[action.finish.y][action.finish.x] = action.target;
+			action.target.alive = true;
 		}
 
 	},
@@ -498,7 +508,7 @@ Object.defineProperties( Player.prototype, {
 			if ( bool ) {
 				//starts playing
 				if ( !this.isChecked ) {
-					this.actions = this.findAllActions();
+					this.actions = this.getPossibleActions();
 				}
 				let moves = this.actions.moves;
 				let captures = this.actions.captures;
@@ -804,9 +814,21 @@ game.players.white.opponent = game.players.black;
 Object.assign( game, {
 
 	start: function () {
-		game.players.white.displayOnGrid();
-		game.players.black.displayOnGrid();
+		game.displayPieces();
 		game.players.white.playing = true;
+	},
+
+	displayPieces: function () {
+
+		for ( let y = 0; y < 8; y++ ) {
+			for ( let x = 0; x < 8; x++ ) {
+				if ( this.gridMatrix[y][x] ) {
+					let piece = this.gridMatrix[y][x];
+					this.getDomElem( piece.line, piece.col ).append( piece.img );
+                }
+            }
+        }
+
 	},
 
 	getDomElem: function ( line, col ) {
