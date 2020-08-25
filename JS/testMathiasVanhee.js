@@ -401,7 +401,7 @@ Object.assign( Player.prototype, {
 			this.opponent.playing = true;
 		}
 		else {
-			game.over( this, this.opponent );
+			game.checkmate( this, this.opponent );
 		}
 
 	},
@@ -456,11 +456,13 @@ Object.assign( Player.prototype, {
 				actions: { moves: sortedActions.moves[i], captures: sortedActions.captures[i] },
 				pixels: { moves: sortedPx.moves[i], captures: sortedPx.captures[i] },
 				player: this,
-				piece: piece
+				piece: piece,
+				domElement: this.game.getDomElem( piece.line, piece.col )
 			};
 			//S'il n'y a aucune action possible, on empêche le joueur de pouvoir cliquer sur la pièce.
 			if ( !( data.actions.moves.length || data.actions.captures.length ) ) continue;
-			piece.img.on( "click", data, this.game.moveImgHandler );
+			data.domElement.one( "click", data, this.game.moveImgHandler );
+			//piece.img.on( "click", data, this.game.moveImgHandler );
 		}
 		
 
@@ -470,7 +472,8 @@ Object.assign( Player.prototype, {
 
 		for ( let i = 0; i < this.piecesList.length; i++ ) {
 			let piece = this.piecesList[i];
-			piece.img.off();
+			let domElement = this.game.getDomElem( piece.line, piece.col )
+			domElement.off();
 
 		}
 
@@ -509,6 +512,11 @@ Object.defineProperties( Player.prototype, {
 				//starts playing
 				if ( !this.isChecked ) {
 					this.actions = this.getPossibleActions();
+					if ( !(this.actions.moves.length || this.actions.captures.length) ) {
+						//pat: le joueur ne peut pas jouer sans être en échec.
+						game.stalemate();
+						return;
+                    }
 				}
 				let moves = this.actions.moves;
 				let captures = this.actions.captures;
@@ -731,7 +739,7 @@ var game = {
 		function addNumber( grid, number ) {
 
 			let newPixel = document.createElement( "div" );
-			$( newPixel ).addClass( "pixel" ).css( "background-color", "white" ).text( number.toString() );
+			$( newPixel ).addClass( "pixel number" ).css( "background-color", "white" ).text( number.toString() );
 			grid.appendChild( newPixel );
 
 		}
@@ -743,7 +751,7 @@ var game = {
 			//8 cases:
 			for ( var col = 0; col < 8; col++ ) {
 				let newPixel = document.createElement( "div" );
-				$( newPixel ).addClass( "pixel" ).css( "background-color", "white" ).text( String.fromCharCode( 65 + col ) );
+				$( newPixel ).addClass( "pixel letter" ).css( "background-color", "white" ).text( String.fromCharCode( 65 + col ) );
 				grid.appendChild( newPixel );
 			}
 			//case vide:
@@ -766,13 +774,13 @@ var game = {
 			//8 cases:
 			for ( var col = 1; col <= 8; col++ ) {
 				let newPixel = document.createElement( "div" );
-				$( newPixel ).addClass( "pixel" )
+				$( newPixel ).addClass( "pixel square" )
 				newGrid.appendChild( newPixel );
 				if ( ( col ^ line ) % 2 ) {
-					$( newPixel ).css( "background-color", "#DCDCDC" );
+					$( newPixel ).css( "background-color", "#D2CC9F" );
 				}
 				else {
-					$( newPixel ).css( "background-color", "#493E2E" );
+					$( newPixel ).css( "background-color", "#493018" );
 				}
 				$( newPixel ).prop( "id", `${line}_${col}` );
 				px++;
@@ -842,7 +850,6 @@ Object.assign( game, {
 		let captures = e.data.actions.captures;
 		let game = e.data.player.game;
 		let piece = e.data.piece;
-		let img = this;
 		let pixels = e.data.pixels;
 		let player = e.data.player;
 
@@ -874,7 +881,7 @@ Object.assign( game, {
 
 
 		//si on reclique sur l'image, on revient comme avant.
-		$( this ).one( "click", e.data, function ( e ) {
+		$( e.data.domElement ).one( "click", e.data, function ( e ) {
 			game.resetPixels( e.data.pixels.moves );
 			game.resetPixels( e.data.pixels.captures );
 			e.data.player.startHandlingClick();
@@ -896,10 +903,10 @@ Object.assign( game, {
 		for ( let i = 0; i < pixels.length; i++ ) {
 			let pixel = pixels[i];
 			if ( ( pixel.col ^ pixel.line ) % 2 ) {
-				this.colorPixel( pixel, "#DCDCDC" );
+				this.colorPixel( pixel, "#D2CC9F" );
 			}
 			else {
-				this.colorPixel( pixel, "#493E2E" );
+				this.colorPixel( pixel, "#493018" );
 			}
 
 			this.getDomElem( pixel.line, pixel.col ).off();
@@ -937,9 +944,13 @@ Object.assign( game, {
 
 	},
 
-	over: function (winner, looser) {
+	checkmate: function (winner, looser) {
 
-	}
+	},
+
+	stalemate: function () {
+
+    }
 
 } );
 
